@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realtime Line Charts with Plotly and Firebase</title>
+    <!-- Include Plotly.js from CDN -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <!-- Include Firebase JavaScript SDK -->
+    <!-- Version 8.10.0 -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        h1 {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .chart-container {
+            width: 80%;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>NZSK01 Current Week</h1>
+    <div id="chart_tvoc_sensor_temperature" class="chart-container"></div>
+    <div id="chart_tvoc_sensor_rh" class="chart-container"></div>
+    <div id="chart_tvoc_sensor_co2" class="chart-container"></div>
+    <div id="chart_light_sensor" class="chart-container"></div>
+    <div id="chart_sound_sensor" class="chart-container"></div>
+    <div id="ChartsHCHO" class="chart-container"></div>
+    <div id="chart_tvoc_sensor_tvoc" class="chart-container"></div>
+    <div id="chart_tvoc_ppm_2_5" class="chart-container"></div>
+    <div id="chart_tvoc_ppm_10" class="chart-container"></div>
+
+
+    <script>
+        const firebaseConfig = {
+    apiKey: "AIzaSyDC1h57a0NiWMT9AXHwKCjj0nuxFvTpGQI",
+    authDomain: "nzfl-testing-2.firebaseapp.com",
+    databaseURL: "https://nzfl-testing-2-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "nzfl-testing-2",
+    storageBucket: "nzfl-testing-2.appspot.com",
+    messagingSenderId: "49651777220",
+    appId: "1:49651777220:web:8f6827edbdf66cbf231391"
+};
+
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const dataRef = firebase.database().ref('device_01');
+
+        // List of sensors
+        const sensors = [
+            'hcho_sensor',
+            'light_sensor',
+            'sound_sensor',
+            'tvoc_ppm_10',
+            'tvoc_ppm_2_5',
+            'tvoc_sensor_co2',
+            'tvoc_sensor_rh',
+            'tvoc_sensor_temperature',
+            'tvoc_sensor_tvoc'
+        ];
+
+        // Function to fetch data and update chart for a specific sensor
+        function fetchDataAndUpdateChart(sensor) {
+            dataRef.once('value')
+                .then(snapshot => {
+                    const data = snapshot.val();
+                    if (!data) {
+                        console.error(`No data available for ${sensor}.`);
+                        return;
+                    }
+
+                    const chartsContainer = document.getElementById(`chart_${sensor}`);
+
+                    // Find the most recent week number in the data
+                    let mostRecentWeek = 0;
+                    const weekData = {};
+
+                    for (let key in data) {
+                        const timestamp = new Date(parseInt(key) * 1000);
+                        const weekOfYear = getWeekNumber(timestamp);
+
+                        if (weekOfYear > mostRecentWeek) {
+                            mostRecentWeek = weekOfYear;
+                        }
+
+                        if (!weekData[weekOfYear]) {
+                            weekData[weekOfYear] = { timestamps: [], values: [] };
+                        }
+
+                        weekData[weekOfYear].timestamps.push(timestamp.getTime());
+                        weekData[weekOfYear].values.push(data[key][sensor]);
+                    }
+
+                    // Create chart for the most recent week data
+                    if (weekData[mostRecentWeek]) {
+                        createChart(weekData[mostRecentWeek].timestamps, weekData[mostRecentWeek].values, mostRecentWeek, chartsContainer, sensor);
+                    }
+                })
+                .catch(error => {
+                    console.error(`Error fetching data for ${sensor}:`, error);
+                });
+        }
+
+        function createChart(timestamps, values, weekNumber, container, sensor) {
+            const startOfWeek = getStartOfWeek(weekNumber);
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setDate(endOfWeek.getDate() + 6);
+
+            const chartTitle = `${sensor.toUpperCase()} - ${startOfWeek.toLocaleDateString('en-US')} - ${endOfWeek.toLocaleDateString('en-US')}`;
+            const chartDiv = document.createElement('div');
+            container.appendChild(chartDiv);
+
+            // Convert timestamps to day names for x-axis labels
+            const xLabels = timestamps.map(timestamp => new Date(timestamp).toLocaleDateString('en-US', { weekday: 'short' }));
+
+            // Filter x-axis labels to show only one label per day
+            const filteredXLabels = [];
+            const filteredTimestamps = [];
+            let prevDay = '';
+            for (let i = 0; i < xLabels.length; i++) {
+                const day = xLabels[i];
+                if (day !== prevDay) {
+                    filteredXLabels.push(day);
+                    filteredTimestamps.push(timestamps[i]);
+                    prevDay = day;
+                } else {
+                    filteredXLabels.push('');
+                    filteredTimestamps.push(timestamps[i]);
+                }
+            }
+
+            // Create hover text with date and time information
+            const hoverText = timestamps.map(timestamp => {
+                const date = new Date(timestamp);
+                return `Date and Time: ${date.toLocaleDateString('en-US')} ${date.toLocaleTimeString('en-US')}`;
+            });
+
+            Plotly.newPlot(chartDiv, [{
+                x: filteredTimestamps,
+                y: values,
+                type: 'scatter',
+                mode: 'lines+markers',
+                line: { color: 'rgb(50, 168, 82)', width: 1 },
+                hoverinfo: 'text+y',
+                text: hoverText
+            }], {
+                title: chartTitle,
+                xaxis: { 
+                    title: 'Date',
+                    tickmode: 'array',
+                    tickvals: filteredTimestamps,
+                    ticktext: filteredXLabels
+                },
+                yaxis: { title: `${sensor.toUpperCase()} Value` }
+            });
+        }
+
+        // Function to get the week number of a date
+        function getWeekNumber(date) {
+            const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+            const dayNum = d.getUTCDay();
+            d.setUTCDate(d.getUTCDate() - dayNum);
+            const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+            return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+        }
+
+        // Function to get the start date of a week given the week number
+        function getStartOfWeek(weekNumber) {
+            const yearStart = new Date(new Date().getFullYear(), 0, 1);
+            yearStart.setDate(yearStart.getDate() + (weekNumber - 1) * 7);
+            return yearStart;
+        }
+
+        // Fetch data and update charts for all sensors
+        sensors.forEach(sensor => {
+            fetchDataAndUpdateChart(sensor);
+        });
+    </script>
+</body>
+</html>
